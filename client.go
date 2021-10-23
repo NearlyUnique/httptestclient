@@ -7,6 +7,8 @@ package httptestclient
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/NearlyUnique/httptestclient/internal/self"
 	"io"
@@ -40,11 +42,23 @@ type testingHooks interface {
 	Failed() bool
 }
 
+var ErrNilBodyJSON = errors.New("BodyJson requires non nil value")
+
 // SimpleResponse simplified status response rather than using the http.Response directly
 type SimpleResponse struct {
 	Header http.Header
 	Body   string
 	Status int
+
+	t TestingT
+}
+
+func (r SimpleResponse) BodyJSON(payload interface{}) {
+	err := json.Unmarshal([]byte(r.Body), payload)
+	if err != nil {
+		r.t.Errorf("unmarshal payload failed: %v", err)
+		r.t.FailNow()
+	}
 }
 
 // Client simplifies creating test client http request
@@ -162,6 +176,22 @@ func (c *Client) BodyBytes(body []byte) *Client {
 	return c
 }
 
+// BodyJSON convert struct to son using json.Marshal
+func (c *Client) BodyJSON(payload interface{}) *Client {
+	if h, ok := c.t.(testingHooks); ok {
+		h.Helper()
+	}
+	if payload == nil {
+		c.err = ErrNilBodyJSON
+		return c
+	}
+	buf, err := json.Marshal(payload)
+	if c.hasError(err) {
+		return c
+	}
+	return c.BodyBytes(buf)
+}
+
 // BodyString is a literal string version of the body
 // if the body has a value the content-type will be 'application/json' will be added
 // unless you set an alternative or use ClearHeaders()
@@ -224,6 +254,7 @@ func (c *Client) DoSimple(server *httptest.Server) SimpleResponse {
 		Header: resp.Header,
 		Status: resp.StatusCode,
 		Body:   string(buf),
+		t:      c.t,
 	}
 }
 

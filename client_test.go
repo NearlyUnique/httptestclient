@@ -204,6 +204,48 @@ func Test_sending_a_payload(t *testing.T) {
 		})
 	}
 }
+func Test_sending_a_payload_struct(t *testing.T) {
+	testData := []struct {
+		method     string
+		methodFunc func(*httptestclient.Client, string, ...interface{}) *httptestclient.Client
+	}{
+		{method: "POST", methodFunc: (*httptestclient.Client).Post},
+		{method: "PUT", methodFunc: (*httptestclient.Client).Put},
+		{method: "PATCH", methodFunc: (*httptestclient.Client).Patch},
+	}
+	for _, td := range testData {
+		t.Run(fmt.Sprintf("send using %v", td.method), func(t *testing.T) {
+			var actual struct {
+				payload     string
+				method      string
+				contentType string
+			}
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				actual.contentType = r.Header.Get("content-type")
+				actual.method = r.Method
+				buf, err := ioutil.ReadAll(r.Body)
+				require.NoError(t, err)
+				actual.payload = string(buf)
+				defer func() { _ = r.Body.Close() }()
+			}))
+
+			payload := struct {
+				Name string `json:"name"`
+				Age  int    `json:"age"`
+			}{
+				Name: "anyone",
+				Age:  21,
+			}
+			testClient := httptestclient.New(t).BodyJSON(payload)
+
+			td.methodFunc(testClient, "/any").DoSimple(s)
+
+			assert.JSONEq(t, `{"age":21,"name":"anyone"}`, actual.payload)
+			assert.Equal(t, "application/json", actual.contentType)
+			assert.Equal(t, td.method, actual.method)
+		})
+	}
+}
 func Test_a_context_can_be_added_to_the_request(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))

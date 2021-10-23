@@ -3,41 +3,46 @@
 Simplified creating http client calls for testing http servers or handlers. Removes the need for error checks whilst building clients so your tests can focus on what is important.
 
 # Basic usage
-
 ```go
 func Test_Example(t *testing.T) {
-    myTestDatabase:=map[string]string{"a_key":"the_value"}
+    myTestDatabase := map[string]string{"database-key": "Hello"}
     s := httptest.NewServer(ProductionHandler(myTestDatabase))
 
     resp := httptestclient.New(t).
-        Get("/any/a_key").
-        Header("custom","my-value").
+        Post("/any/%s", "database-key").
+        BodyJSON(&Customer{Name: "Bob"}).
+        Header("custom", "😊").
         DoSimple(s)
 
     // default is to allow resp.Status == 2xx so no need to assert
-
-    if resp.Body != "the_value"{
-        t.Errorf("expected the_value got %s", resp.Body)
+    payload := map[string]string{}
+    resp.BodyJSON(&payload)
+    if payload["value"] != "Hello Bob 😊" {
+        t.Errorf("expected json with name='Hello Bob 😊' got %s", resp.Body)
     }
 }
 ```
 
-create a new httptestclient, set the `.Method`, `.Url`, `.Header`s, `.ExpectedStatusCode` as required, then call `.Do` (to get the `http.Response`) or `.DoSimple` to receive just the headers, status and body.
+create a new `httptestclient`, set the `.Method`, `.Url`, `.Header`s, `.ExpectedStatusCode` as required, then call `.Do` (to get the `http.Response`) or `.DoSimple` to receive just the headers, status and body.
 
-If any part of the construction or execution of the request fails the test will fail but you don't need to specify this. 
+If any part of the construction or execution of the request fails the test will fail, but you don't need to specify this. 
 
 # Avoid this
 
 ```go
 func Test_Example_ToAvoid(t *testing.T) {
-    myTestDatabase := map[string]string{"a_key": "the_value"}
+    myTestDatabase := map[string]string{"database-key": "Hello"}
     s := httptest.NewServer(ProductionHandler(myTestDatabase))
 
-    req, err := http.NewRequest(http.MethodGet, s.URL+"/any/a_key", nil)
+    buf, err := json.Marshal(Customer{Name: "Bob"})
+    if err != nil {
+        t.Errorf("failed to marshal request: %v", err)
+    }
+    req, err := http.NewRequest(http.MethodPost, s.URL+"/any/database-key", bytes.NewReader(buf))
     if err != nil {
         t.Errorf("failed to create request: %v", err)
     }
-    req.Header.Set("custom", "a_key")
+    req.Header.Set("custom", "😊")
     resp, err := s.Client().Do(req)
     if err != nil {
         t.Errorf("failed to execute request: %v", err)
@@ -46,14 +51,19 @@ func Test_Example_ToAvoid(t *testing.T) {
         t.Errorf("expected 2xx OK got %d", resp.StatusCode)
     }
     defer resp.Body.Close()
-    buf, err := ioutil.ReadAll(resp.Body)
+    buf, err = ioutil.ReadAll(resp.Body)
     if err != nil {
         t.Errorf("failed to read response body: %v", err)
     }
-    if string(buf) != "the_value" {
-        t.Errorf("expected the_value got %s", string(buf))
+    payload := map[string]string{}
+    err = json.Unmarshal(buf, &payload)
+    if err != nil {
+        t.Errorf("failed to unmarshal response body: %v", err)
+    }
+    if payload["value"] != "Hello Bob 😊" {
+        t.Errorf("expected json with name='Hello Bob 😊' got %s", string(buf))
     }
 }
 ```
 
-Every
+There is so much error handling to make sure the test is valid that is not easy to see what is actually being tested

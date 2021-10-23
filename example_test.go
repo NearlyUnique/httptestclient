@@ -1,6 +1,9 @@
 package httptestclient_test
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"github.com/NearlyUnique/httptestclient"
 	"io/ioutil"
 	"net/http"
@@ -11,6 +14,7 @@ import (
 
 type database map[string]string
 
+// ProductionHandler takes the pPOST body, URL and header to return json
 func ProductionHandler(conn database) http.Handler {
 	// other dependency setup here
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -24,35 +28,67 @@ func ProductionHandler(conn database) http.Handler {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		_, _ = w.Write([]byte(val))
+		buf, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		var c Customer
+		err = json.Unmarshal(buf, &c)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		payload := struct {
+			Value string `json:"value"`
+		}{
+			Value: fmt.Sprintf("%s %s %s", val, c.Name, r.Header.Get("custom")),
+		}
+		buf, err = json.Marshal(payload)
+		if err != nil {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write(buf)
 	})
 }
 
+// Customer for testing
+type Customer struct {
+	Name string `json:"name"`
+}
+
 func Test_Example(t *testing.T) {
-	myTestDatabase := map[string]string{"a_key": "the_value"}
+	myTestDatabase := map[string]string{"database-key": "Hello"}
 	s := httptest.NewServer(ProductionHandler(myTestDatabase))
 
 	resp := httptestclient.New(t).
-		Get("/any/a_key").
-		Header("custom", "my-value").
+		Post("/any/%s", "database-key").
+		BodyJSON(&Customer{Name: "Bob"}).
+		Header("custom", "😊").
 		DoSimple(s)
 
 	// default is to allow resp.Status == 2xx so no need to assert
-
-	if resp.Body != "the_value" {
-		t.Errorf("expected the_value got %s", resp.Body)
+	payload := map[string]string{}
+	resp.BodyJSON(&payload)
+	if payload["value"] != "Hello Bob 😊" {
+		t.Errorf("expected json with name='Hello Bob 😊' got %s", resp.Body)
 	}
 }
 
 func Test_Example_ToAvoid(t *testing.T) {
-	myTestDatabase := map[string]string{"a_key": "the_value"}
+	myTestDatabase := map[string]string{"database-key": "Hello"}
 	s := httptest.NewServer(ProductionHandler(myTestDatabase))
 
-	req, err := http.NewRequest(http.MethodGet, s.URL+"/any/a_key", nil)
+	buf, err := json.Marshal(Customer{Name: "Bob"})
+	if err != nil {
+		t.Errorf("failed to marshal request: %v", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, s.URL+"/any/database-key", bytes.NewReader(buf))
 	if err != nil {
 		t.Errorf("failed to create request: %v", err)
 	}
-	req.Header.Set("custom", "a_key")
+	req.Header.Set("custom", "😊")
 	resp, err := s.Client().Do(req)
 	if err != nil {
 		t.Errorf("failed to execute request: %v", err)
@@ -61,11 +97,16 @@ func Test_Example_ToAvoid(t *testing.T) {
 		t.Errorf("expected 2xx OK got %d", resp.StatusCode)
 	}
 	defer resp.Body.Close()
-	buf, err := ioutil.ReadAll(resp.Body)
+	buf, err = ioutil.ReadAll(resp.Body)
 	if err != nil {
 		t.Errorf("failed to read response body: %v", err)
 	}
-	if string(buf) != "the_value" {
-		t.Errorf("expected the_value got %s", string(buf))
+	payload := map[string]string{}
+	err = json.Unmarshal(buf, &payload)
+	if err != nil {
+		t.Errorf("failed to unmarshal response body: %v", err)
+	}
+	if payload["value"] != "Hello Bob 😊" {
+		t.Errorf("expected json with name='Hello Bob 😊' got %s", string(buf))
 	}
 }
