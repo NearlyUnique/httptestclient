@@ -14,9 +14,8 @@ func Test_Example(t *testing.T) {
         Header("custom","my-value").
         DoSimple(s)
 
-    if resp.Status != http.StatusOK{
-        t.Errorf("expected 200 OK got %v", resp.Status)
-    }
+    // default is to allow resp.Status == 2xx so no need to assert
+
     if resp.Body != "the_value"{
         t.Errorf("expected the_value got %s", resp.Body)
     }
