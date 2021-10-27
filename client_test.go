@@ -28,6 +28,8 @@ func Test_defaults(t *testing.T) {
 		w.Header().Set("a-header", "a-value")
 		_, _ = w.Write([]byte(`any content`))
 	}))
+	defer s.Close()
+
 	resp := httptestclient.New(t).DoSimple(s)
 
 	assert.Equal(t, http.MethodGet, actual.method)
@@ -55,6 +57,8 @@ func Test_overrides(t *testing.T) {
 		actual.url = r.URL.Path
 		actual.method = r.Method
 	}))
+	defer s.Close()
+
 	t.Run("http method can be overridden", func(t *testing.T) {
 		for _, m := range []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodGet} {
 			t.Run(fmt.Sprintf("set method to %v", m), func(t *testing.T) {
@@ -115,6 +119,7 @@ func Test_http_status_codes(t *testing.T) {
 				s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(statusCode)
 				}))
+				defer s.Close()
 
 				_ = httptestclient.New(t).DoSimple(s)
 			})
@@ -126,6 +131,7 @@ func Test_http_status_codes(t *testing.T) {
 				s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(statusCode)
 				}))
+				defer s.Close()
 
 				_ = httptestclient.New(self.NewFakeTester(func(format string, args ...interface{}) {
 					assert.Equal(t, "expected success, got %d", format)
@@ -141,6 +147,7 @@ func Test_http_status_codes(t *testing.T) {
 				s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(statusCode)
 				}))
+				defer s.Close()
 
 				_ = httptestclient.New(t).
 					ExpectedStatusCode(statusCode).
@@ -154,6 +161,7 @@ func Test_http_status_codes(t *testing.T) {
 				s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					w.WriteHeader(http.StatusTeapot)
 				}))
+				defer s.Close()
 
 				_ = httptestclient.
 					New(self.NewFakeTester(func(format string, args ...interface{}) {
@@ -193,6 +201,7 @@ func Test_sending_a_payload(t *testing.T) {
 				actual.payload = string(buf)
 				defer func() { _ = r.Body.Close() }()
 			}))
+			defer s.Close()
 
 			testClient := httptestclient.New(t).BodyString("any content")
 
@@ -203,6 +212,16 @@ func Test_sending_a_payload(t *testing.T) {
 			assert.Equal(t, td.method, actual.method)
 		})
 	}
+}
+func Test_sending_an_empty_payload_struct_fails_the_test(t *testing.T) {
+	test := self.NewFakeTester(func(format string, args ...interface{}) {
+		assert.Equal(t, "payload to send is nil", format)
+	})
+	req := httptestclient.New(test).
+		Method(http.MethodPost).
+		BodyJSON(nil).
+		BuildRequest()
+	assert.Nil(t, req)
 }
 func Test_sending_a_payload_struct(t *testing.T) {
 	testData := []struct {
@@ -228,6 +247,7 @@ func Test_sending_a_payload_struct(t *testing.T) {
 				actual.payload = string(buf)
 				defer func() { _ = r.Body.Close() }()
 			}))
+			defer s.Close()
 
 			payload := struct {
 				Name string `json:"name"`
@@ -249,6 +269,7 @@ func Test_sending_a_payload_struct(t *testing.T) {
 func Test_a_context_can_be_added_to_the_request(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	defer s.Close()
 
 	// the context will be canceled causing an error when the request is made
 	cancel()
@@ -261,4 +282,40 @@ func Test_a_context_can_be_added_to_the_request(t *testing.T) {
 		})).
 		Context(ctx).
 		DoSimple(s)
+}
+func Test_raw_request_can_be_built(t *testing.T) {
+	var actual struct {
+		header http.Header
+		url    string
+		method string
+	}
+	productionHandler := func(w http.ResponseWriter, r *http.Request) {
+		actual.header = r.Header
+		actual.url = r.URL.Path
+		actual.method = r.Method
+		w.Header().Set("custom-response-header", "resp-1")
+		_, _ = w.Write([]byte(`any content`))
+	}
+
+	rr := httptest.NewRecorder()
+
+	req := httptestclient.
+		New(t).
+		Get("/path").
+		Header("custom-request-header", "req-1").
+		BuildRequest()
+
+	productionHandler(rr, req)
+
+	assert.Equal(t, http.MethodGet, actual.method)
+	assert.Equal(t, "/path", actual.url)
+	assert.Equal(t, "any content", rr.Body.String())
+
+	assert.Equal(t, 3, len(actual.header))
+	assert.Equal(t, "application/json", actual.header.Get("accept"))
+	assert.Equal(t, "req-1", actual.header.Get("custom-request-header"))
+	assert.Equal(t, httptestclient.UserAgent, actual.header.Get("user-agent"))
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "resp-1", rr.Header().Get("custom-response-header"))
 }

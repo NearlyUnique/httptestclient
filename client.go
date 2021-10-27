@@ -24,8 +24,10 @@ const UserAgent = "test-http-request"
 // ContentTypeApplicationJson for http header Content-Type
 const ContentTypeApplicationJson = "application/json"
 
-// DefaultContentType when content is detected
-var DefaultContentType = ContentTypeApplicationJson
+var (
+	// DefaultContentType when content is detected
+	DefaultContentType = ContentTypeApplicationJson
+)
 
 // TestingT allows testing of this test client use *testing.T
 type TestingT interface {
@@ -42,6 +44,7 @@ type testingHooks interface {
 	Failed() bool
 }
 
+// ErrNilBodyJSON sentinel error
 var ErrNilBodyJSON = errors.New("BodyJson requires non nil value")
 
 // SimpleResponse simplified status response rather than using the http.Response directly
@@ -53,6 +56,7 @@ type SimpleResponse struct {
 	t TestingT
 }
 
+// BodyJSON uses json.Unmarshal to map the Body to the struct
 func (r SimpleResponse) BodyJSON(payload interface{}) {
 	err := json.Unmarshal([]byte(r.Body), payload)
 	if err != nil {
@@ -182,6 +186,8 @@ func (c *Client) BodyJSON(payload interface{}) *Client {
 		h.Helper()
 	}
 	if payload == nil {
+		c.t.Errorf("payload to send is nil")
+		c.t.FailNow()
 		c.err = ErrNilBodyJSON
 		return c
 	}
@@ -199,12 +205,22 @@ func (c *Client) BodyString(body string) *Client {
 	return c.BodyBytes([]byte(body))
 }
 
-// Do the http request, http status must either match expected or be success
-func (c *Client) Do(server *httptest.Server) *http.Response {
+// BuildRequest a raw unsent request
+func (c *Client) BuildRequest() *http.Request {
 	if h, ok := c.t.(testingHooks); ok {
 		h.Helper()
 	}
-	url := joinPath(server.URL, c.url)
+	return c.buildRequest("")
+}
+
+func (c *Client) buildRequest(baseURL string) *http.Request {
+	if h, ok := c.t.(testingHooks); ok {
+		h.Helper()
+	}
+	if c.err != nil {
+		return nil
+	}
+	url := joinPath(baseURL, c.url)
 	req, err := http.NewRequestWithContext(c.context, c.method, url, c.body)
 	if c.hasError(err) {
 		return nil
@@ -212,6 +228,20 @@ func (c *Client) Do(server *httptest.Server) *http.Response {
 	req.Header = c.header
 	if c.body != nil && req.Header.Get("Content-Type") == "" {
 		req.Header.Set("Content-Type", DefaultContentType)
+	}
+	return req
+}
+
+// Do the http request, http status must either match expected or be success
+func (c *Client) Do(server *httptest.Server) *http.Response {
+
+	if h, ok := c.t.(testingHooks); ok {
+		h.Helper()
+	}
+
+	req := c.buildRequest(server.URL)
+	if req == nil {
+		return nil
 	}
 
 	resp, err := server.Client().Do(req)
@@ -227,7 +257,7 @@ func (c *Client) Do(server *httptest.Server) *http.Response {
 	}
 
 	if _, ok := c.t.(*self.FakeTester); ok {
-		// if you get here, and you are self testing then your tst has failed to fail
+		// if you get here, and you are self testing then your test has failed to fail
 		c.t.Errorf("ASSERTION NOT MET")
 		c.t.FailNow()
 	}
@@ -235,6 +265,7 @@ func (c *Client) Do(server *httptest.Server) *http.Response {
 	return resp
 }
 
+// DoSimple performs as Do but reads any response payload to a string
 func (c *Client) DoSimple(server *httptest.Server) SimpleResponse {
 	if h, ok := c.t.(testingHooks); ok {
 		h.Helper()
@@ -258,6 +289,7 @@ func (c *Client) DoSimple(server *httptest.Server) SimpleResponse {
 	}
 }
 
+// joinPath for http paths
 func joinPath(root, path string) string {
 	if !strings.HasPrefix(path, "/") {
 		return root + "/" + path
