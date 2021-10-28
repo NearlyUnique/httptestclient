@@ -1,6 +1,8 @@
 # Overview
 
-Simplified creating http client calls for testing http servers or handlers. Removes the need for error checks whilst building clients so your tests can focus on what is important.
+Simplified creating http client calls for testing http servers or handlers.
+
+Cleanly build and execute http requests in tests so that you can focus on what is important.
 
 # Basic usage
 ```go
@@ -27,7 +29,7 @@ create a new `httptestclient`, set the `.Method`, `.Url`, `.Header`s, `.Expected
 
 If any part of the construction or execution of the request fails the test will fail, but you don't need to specify this. 
 
-# Avoid this
+# The long complicated way
 
 ```go
 func Test_Example_ToAvoid(t *testing.T) {

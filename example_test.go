@@ -77,7 +77,7 @@ func Test_Example(t *testing.T) {
 	}
 }
 
-func Test_Example_to_avoid(t *testing.T) {
+func Test_Example_the_long_complicated_way(t *testing.T) {
 	myTestDatabase := map[string]string{"database-key": "Hello"}
 	s := httptest.NewServer(ProductionHandler(myTestDatabase))
 	defer s.Close()
@@ -113,7 +113,7 @@ func Test_Example_to_avoid(t *testing.T) {
 	}
 }
 
-func Test_Example_to_avoid_even_with_test_helpers(t *testing.T) {
+func Test_Example_the_short_complicated_way(t *testing.T) {
 	myTestDatabase := map[string]string{"database-key": "Hello"}
 	s := httptest.NewServer(ProductionHandler(myTestDatabase))
 	defer s.Close()
