@@ -61,6 +61,7 @@ type Customer struct {
 func Test_Example(t *testing.T) {
 	myTestDatabase := map[string]string{"database-key": "Hello"}
 	s := httptest.NewServer(ProductionHandler(myTestDatabase))
+	defer s.Close()
 
 	resp := httptestclient.New(t).
 		Post("/any/%s", "database-key").
@@ -76,9 +77,10 @@ func Test_Example(t *testing.T) {
 	}
 }
 
-func Test_Example_ToAvoid(t *testing.T) {
+func Test_Example_to_avoid(t *testing.T) {
 	myTestDatabase := map[string]string{"database-key": "Hello"}
 	s := httptest.NewServer(ProductionHandler(myTestDatabase))
+	defer s.Close()
 
 	buf, err := json.Marshal(Customer{Name: "Bob"})
 	if err != nil {
@@ -108,5 +110,47 @@ func Test_Example_ToAvoid(t *testing.T) {
 	}
 	if payload["value"] != "Hello Bob 😊" {
 		t.Errorf("expected json with name='Hello Bob 😊' got %s", string(buf))
+	}
+}
+
+func Test_Example_to_avoid_even_with_test_helpers(t *testing.T) {
+	myTestDatabase := map[string]string{"database-key": "Hello"}
+	s := httptest.NewServer(ProductionHandler(myTestDatabase))
+	defer s.Close()
+
+	buf, err := json.Marshal(Customer{Name: "Bob"})
+	assertNoErr(t, err)
+	req, err := http.NewRequest(http.MethodPost, s.URL+"/any/database-key", bytes.NewReader(buf))
+	assertNoErr(t, err)
+	req.Header.Set("custom", "😊")
+	resp, err := s.Client().Do(req)
+	assertNoErr(t, err)
+	assertInRange(t,200,resp.StatusCode,299)
+	defer resp.Body.Close()
+	buf, err = ioutil.ReadAll(resp.Body)
+	assertNoErr(t, err)
+	payload := map[string]string{}
+	err = json.Unmarshal(buf, &payload)
+	assertNoErr(t, err)
+	assertEqualStr(t, payload["value"], "Hello Bob 😊")
+}
+
+func assertInRange(t *testing.T, min, actual, max int) {
+	t.Helper()
+	if actual < min || actual > max {
+		t.Errorf("expected between %d < x > %d, got %d", min, max, actual)
+	}
+}
+func assertEqualStr(t *testing.T, expected, actual string) {
+	t.Helper()
+	if expected != actual {
+		t.Errorf("expected %s, actual %s", expected, actual)
+	}
+}
+
+func assertNoErr(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Errorf("unexpected error: %v", err)
 	}
 }
