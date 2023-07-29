@@ -1,12 +1,5 @@
 package self
 
-import (
-	"errors"
-)
-
-// ErrFakeTesterFailNow for forcing a "passing" failing test
-var ErrFakeTesterFailNow = errors.New("FailNow")
-
 // FakeTester to test when a test should fail but allow the testing test to pass
 type FakeTester struct {
 	errorfFunc func(format string, args ...interface{})

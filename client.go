@@ -10,12 +10,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/NearlyUnique/httptestclient/internal/self"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+
+	"github.com/NearlyUnique/httptestclient/internal/self"
 )
 
 // UserAgent default value
@@ -73,6 +74,7 @@ type Client struct {
 	url            string
 	header         http.Header
 	body           io.Reader
+	form           url.Values
 	context        context.Context
 	expectedStatus int
 	err            error
@@ -82,11 +84,12 @@ type Client struct {
 // `t` use `*testing.T`
 // `s` server under test
 // example:
-//   resp2 := New(t).
-//		Post("/some-request/%s/resource", id).
-//		Header("special-header", "magic").
-//		BodyString(`{"token":"opaque-string"}`).
-//		Do(server)
+//
+//	  resp2 := New(t).
+//			Post("/some-request/%s/resource", id).
+//			Header("special-header", "magic").
+//			BodyString(`{"token":"opaque-string"}`).
+//			Do(server)
 func New(t TestingT) *Client {
 	if h, ok := t.(testingHooks); ok {
 		h.Helper()
@@ -129,32 +132,37 @@ func (c *Client) URL(url string, args ...interface{}) *Client {
 	return c
 }
 
-// Post is short-hand for
-//   testClient.Method("POST").URL(...)
+// Post is shorthand for
+//
+//	testClient.Method("POST").URL(...)
 func (c *Client) Post(url string, args ...interface{}) *Client {
 	return c.Method(http.MethodPost).URL(url, args...)
 }
 
-// Put is short-hand for
-//   testClient.Method("PUT").URL(...)
+// Put is shorthand for
+//
+//	testClient.Method("PUT").URL(...)
 func (c *Client) Put(url string, args ...interface{}) *Client {
 	return c.Method(http.MethodPut).URL(url, args...)
 }
 
-// Patch is short-hand for
-//   testClient.Method("PATCH").URL(...)
+// Patch is shorthand for
+//
+//	testClient.Method("PATCH").URL(...)
 func (c *Client) Patch(url string, args ...interface{}) *Client {
 	return c.Method(http.MethodPatch).URL(url, args...)
 }
 
-// Get is short-hand for
-//   testClient.Method("GET").URL(...)
+// Get is shorthand for
+//
+//	testClient.Method("GET").URL(...)
 func (c *Client) Get(url string, args ...interface{}) *Client {
 	return c.Method(http.MethodGet).URL(url, args...)
 }
 
-// Delete is short-hand for
-//   testClient.Method("DELETE").URL(...)
+// Delete is shorthand for
+//
+//	testClient.Method("DELETE").URL(...)
 func (c *Client) Delete(url string, args ...interface{}) *Client {
 	return c.Method(http.MethodDelete).URL(url, args...)
 }
@@ -165,6 +173,23 @@ func (c *Client) Header(name, value string, moreValues ...string) *Client {
 	for _, v := range moreValues {
 		c.header.Add(name, v)
 	}
+	return c
+}
+
+// FormData for posting x-www-form-urlencoded forms
+// args is expected to be pairs of key:values
+func (c *Client) FormData(args ...string) *Client {
+	if len(args)%2 != 0 {
+		c.failNow("Incorrect number of parameters %d items, missed pair", len(args))
+	}
+	if c.form == nil {
+		c.form = url.Values{}
+	}
+	for i := 0; i < len(args); i += 2 {
+		c.form.Add(args[i], args[i+1])
+	}
+	// re-encode fom as body
+	c.body = strings.NewReader(c.form.Encode())
 	return c
 }
 
@@ -186,8 +211,7 @@ func (c *Client) BodyJSON(payload interface{}) *Client {
 		h.Helper()
 	}
 	if payload == nil {
-		c.t.Errorf("payload to send is nil")
-		c.t.FailNow()
+		c.failNow("payload to send is nil")
 		c.err = ErrNilBodyJSON
 		return c
 	}
@@ -220,13 +244,18 @@ func (c *Client) buildRequest(baseURL string) *http.Request {
 	if c.err != nil {
 		return nil
 	}
-	url := joinPath(baseURL, c.url)
-	req, err := http.NewRequestWithContext(c.context, c.method, url, c.body)
+	urlPath := joinPath(baseURL, c.url)
+	if len(c.form) > 0 && c.method == "" {
+		c.Method(http.MethodPost)
+	}
+	req, err := http.NewRequestWithContext(c.context, c.method, urlPath, c.body)
 	if c.hasError(err) {
 		return nil
 	}
 	req.Header = c.header
-	if c.body != nil && req.Header.Get("Content-Type") == "" {
+	if len(c.form) > 0 {
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	} else if c.body != nil && req.Header.Get("Content-Type") == "" {
 		req.Header.Set("Content-Type", DefaultContentType)
 	}
 	return req
@@ -258,8 +287,7 @@ func (c *Client) Do(server *httptest.Server) *http.Response {
 
 	if _, ok := c.t.(*self.FakeTester); ok {
 		// if you get here, and you are self testing then your test has failed to fail
-		c.t.Errorf("ASSERTION NOT MET")
-		c.t.FailNow()
+		c.failNow("ASSERTION NOT MET")
 	}
 
 	return resp
@@ -276,7 +304,7 @@ func (c *Client) DoSimple(server *httptest.Server) SimpleResponse {
 		return SimpleResponse{}
 	}
 	defer func() { _ = resp.Body.Close() }()
-	buf, err := ioutil.ReadAll(resp.Body)
+	buf, err := io.ReadAll(resp.Body)
 	if c.hasError(err) {
 		// test will have already failed for normal use, for self test the FakeTest will have detected the
 		return SimpleResponse{}
@@ -304,8 +332,7 @@ func (c *Client) hasError(err error) bool {
 	}
 	if err != nil {
 		c.err = err
-		c.t.Errorf("Expected no error, got %v", err)
-		c.t.FailNow()
+		c.failNow("Expected no error, got %v", err)
 		return true
 	}
 	return false

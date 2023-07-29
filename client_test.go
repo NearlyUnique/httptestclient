@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/NearlyUnique/httptestclient/internal/self"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+
+	"github.com/NearlyUnique/httptestclient/internal/self"
 
 	"github.com/NearlyUnique/httptestclient"
 	"github.com/stretchr/testify/assert"
@@ -101,7 +103,7 @@ func Test_overrides(t *testing.T) {
 		assert.Equal(t, "value1", actual.header.Get("custom-header-1"))
 		assert.Equal(t, []string{"value2a", "value2b"}, actual.header["Custom-Header-2"])
 	})
-	t.Run("default httpclienttest headers can be removed and leave go client defaults", func(t *testing.T) {
+	t.Run("default httptestclient headers can be removed and leave go client defaults", func(t *testing.T) {
 		_ = httptestclient.New(t).
 			ClearHeaders().
 			Do(s)
@@ -196,7 +198,7 @@ func Test_sending_a_payload(t *testing.T) {
 			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				actual.contentType = r.Header.Get("content-type")
 				actual.method = r.Method
-				buf, err := ioutil.ReadAll(r.Body)
+				buf, err := io.ReadAll(r.Body)
 				require.NoError(t, err)
 				actual.payload = string(buf)
 				defer func() { _ = r.Body.Close() }()
@@ -242,7 +244,7 @@ func Test_sending_a_payload_struct(t *testing.T) {
 			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				actual.contentType = r.Header.Get("content-type")
 				actual.method = r.Method
-				buf, err := ioutil.ReadAll(r.Body)
+				buf, err := io.ReadAll(r.Body)
 				require.NoError(t, err)
 				actual.payload = string(buf)
 				defer func() { _ = r.Body.Close() }()
@@ -318,4 +320,69 @@ func Test_raw_request_can_be_built(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rr.Code)
 	assert.Equal(t, "resp-1", rr.Header().Get("custom-response-header"))
+}
+
+func Test_form_posting(t *testing.T) {
+	t.Run("basic form POST", func(t *testing.T) {
+		var actual ActualFormRequest
+		s := httptest.NewServer(formHandler(t, &actual))
+		defer s.Close()
+
+		_ = httptestclient.
+			New(t).
+			Post("/any").
+			FormData("param1", "value1", "param2", "value2").
+			DoSimple(s)
+
+		assert.Equal(t, "application/x-www-form-urlencoded", actual.contentType)
+		assert.Equal(t, "POST", actual.method)
+		assert.Equal(t, map[string]string{
+			"param1": "value1", "param2": "value2",
+		}, actual.form)
+	})
+	t.Run("list for key form POST", func(t *testing.T) {
+		var actual ActualFormRequest
+		s := httptest.NewServer(formHandler(t, &actual))
+		defer s.Close()
+
+		_ = httptestclient.
+			New(t).
+			Post("/any").
+			FormData("param1", "value1", "param2", "value2").
+			FormData("param1", "value2").
+			FormData("param3", "value3").
+			DoSimple(s)
+
+		assert.Equal(t, "application/x-www-form-urlencoded", actual.contentType)
+		assert.Equal(t, "POST", actual.method)
+		assert.Equal(t, map[string]string{
+			"param1": "value1,value2",
+			"param2": "value2",
+			"param3": "value3",
+		}, actual.form)
+	})
+}
+
+type ActualFormRequest struct {
+	payload     string
+	method      string
+	contentType string
+	form        map[string]string
+}
+
+func formHandler(t *testing.T, actual *ActualFormRequest) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		actual.contentType = r.Header.Get("content-type")
+		actual.method = r.Method
+		err := r.ParseForm()
+		require.NoError(t, err)
+		actual.form = map[string]string{}
+		for k, v := range r.Form {
+			actual.form[k] = strings.Join(v, ",")
+		}
+		buf, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		actual.payload = string(buf)
+		defer func() { _ = r.Body.Close() }()
+	})
 }

@@ -4,12 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/NearlyUnique/httptestclient"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/NearlyUnique/httptestclient"
 )
 
 type database map[string]string
@@ -28,7 +29,7 @@ func ProductionHandler(conn database) http.Handler {
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
-		buf, err := ioutil.ReadAll(r.Body)
+		buf, err := io.ReadAll(r.Body)
 		if err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			return
@@ -99,7 +100,7 @@ func Test_Example_the_long_complicated_way(t *testing.T) {
 		t.Errorf("expected 2xx OK got %d", resp.StatusCode)
 	}
 	defer resp.Body.Close()
-	buf, err = ioutil.ReadAll(resp.Body)
+	buf, err = io.ReadAll(resp.Body)
 	if err != nil {
 		t.Errorf("failed to read response body: %v", err)
 	}
@@ -125,9 +126,9 @@ func Test_Example_the_short_complicated_way(t *testing.T) {
 	req.Header.Set("custom", "😊")
 	resp, err := s.Client().Do(req)
 	assertNoErr(t, err)
-	assertInRange(t,200,resp.StatusCode,299)
+	assertInRange(t, 200, resp.StatusCode, 299)
 	defer resp.Body.Close()
-	buf, err = ioutil.ReadAll(resp.Body)
+	buf, err = io.ReadAll(resp.Body)
 	assertNoErr(t, err)
 	payload := map[string]string{}
 	err = json.Unmarshal(buf, &payload)

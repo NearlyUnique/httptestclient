@@ -53,7 +53,7 @@ func Test_Example_ToAvoid(t *testing.T) {
         t.Errorf("expected 2xx OK got %d", resp.StatusCode)
     }
     defer resp.Body.Close()
-    buf, err = ioutil.ReadAll(resp.Body)
+    buf, err = io.ReadAll(resp.Body)
     if err != nil {
         t.Errorf("failed to read response body: %v", err)
     }
