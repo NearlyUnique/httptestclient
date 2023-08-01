@@ -177,6 +177,53 @@ func Test_http_status_codes(t *testing.T) {
 			})
 		}
 	})
+	t.Run("if a specific status code is given, any other code fails", func(t *testing.T) {
+		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusTeapot)
+		}))
+		defer s.Close()
+
+		_ = httptestclient.
+			New(self.NewFakeTester(func(format string, args ...interface{}) {
+				assert.Equal(t, "misuse of ExpectedStatusCode(%d), use ExpectRedirectTo instead", format)
+				require.Equal(t, 1, len(args))
+				assert.Equal(t, http.StatusSeeOther, args[0].(int))
+			})).
+			ExpectedStatusCode(http.StatusSeeOther).
+			DoSimple(s)
+	})
+	t.Run("server redirects can be detected", func(t *testing.T) {
+		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/redirected" {
+				_, _ = fmt.Fprint(w, `done`)
+				return
+			}
+			http.Redirect(w, r, "/redirected", http.StatusSeeOther)
+		}))
+		defer s.Close()
+
+		resp := httptestclient.New(t).
+			Get("/start").
+			ExpectRedirectTo("/redirected").
+			DoSimple(s)
+
+		assert.Equal(t, "done", resp.Body)
+	})
+	t.Run("server redirects can be detected if missed", func(t *testing.T) {
+		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = fmt.Fprint(w, `done`)
+		}))
+		defer s.Close()
+
+		_ = httptestclient.New(self.NewFakeTester(func(format string, args ...interface{}) {
+			assert.Equal(t, "expected to redirect path '%s' but no redirection happened", format)
+			require.Equal(t, 1, len(args))
+			assert.Equal(t, "/redirected", args[0].(string))
+		})).
+			Get("/start").
+			ExpectRedirectTo("/redirected").
+			DoSimple(s)
+	})
 }
 
 func Test_sending_a_payload(t *testing.T) {

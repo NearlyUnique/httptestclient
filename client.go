@@ -70,14 +70,15 @@ func (r SimpleResponse) BodyJSON(payload interface{}) {
 type Client struct {
 	t TestingT
 
-	method         string
-	url            string
-	header         http.Header
-	body           io.Reader
-	form           url.Values
-	context        context.Context
-	expectedStatus int
-	err            error
+	method             string
+	url                string
+	header             http.Header
+	body               io.Reader
+	form               url.Values
+	context            context.Context
+	expectedStatus     int
+	err                error
+	expectRedirectPath string
 }
 
 // New for testing, finish with Client.Do or Client.DoSimple
@@ -115,8 +116,19 @@ func (c *Client) Context(ctx context.Context) *Client {
 }
 
 // ExpectedStatusCode for the test to pass. By default, any 2xx will pass otherwise explicitly state the success status
+// do not use this to expect redirects, see ExpectRedirectTo
 func (c *Client) ExpectedStatusCode(status int) *Client {
+	if status >= 300 && status < 400 {
+		c.failNow("misuse of ExpectedStatusCode(%d), use ExpectRedirectTo instead", status)
+		return c
+	}
 	c.expectedStatus = status
+	return c
+}
+
+// ExpectRedirectTo a specific url
+func (c *Client) ExpectRedirectTo(path string) *Client {
+	c.expectRedirectPath = path
 	return c
 }
 
@@ -272,9 +284,25 @@ func (c *Client) Do(server *httptest.Server) *http.Response {
 	if req == nil {
 		return nil
 	}
-
-	resp, err := server.Client().Do(req)
+	client := server.Client()
+	wasRedirected := false
+	if client.CheckRedirect == nil {
+		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+			fmt.Println("Redirected to:", req.URL)
+			if req.URL.Path != c.expectRedirectPath {
+				c.failNow("expected to redirect path '%s', actual path '%s'", c.expectRedirectPath, req.URL.Path)
+				return fmt.Errorf("expected to redirect path '%s', actual path '%s'", c.expectRedirectPath, req.URL.Path)
+			}
+			wasRedirected = true
+			return nil
+		}
+	}
+	resp, err := client.Do(req)
 	if c.hasError(err) {
+		return nil
+	}
+	if c.expectRedirectPath != "" && !wasRedirected {
+		c.failNow("expected to redirect path '%s' but no redirection happened", c.expectRedirectPath)
 		return nil
 	}
 	if c.expectedStatus == 0 && resp.StatusCode >= 400 {
