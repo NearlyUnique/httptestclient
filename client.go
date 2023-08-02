@@ -50,9 +50,10 @@ var ErrNilBodyJSON = errors.New("BodyJson requires non nil value")
 
 // SimpleResponse simplified status response rather than using the http.Response directly
 type SimpleResponse struct {
-	Header http.Header
-	Body   string
-	Status int
+	Header        http.Header
+	Body          string
+	Status        int
+	RedirectedVia string
 
 	t TestingT
 }
@@ -70,6 +71,9 @@ func (r SimpleResponse) BodyJSON(payload interface{}) {
 type Client struct {
 	t TestingT
 
+	// MaxRedirects, (per request) default is 10
+	MaxRedirects int
+
 	method             string
 	url                string
 	header             http.Header
@@ -79,6 +83,7 @@ type Client struct {
 	expectedStatus     int
 	err                error
 	expectRedirectPath string
+	actualRedirect     []string
 }
 
 // New for testing, finish with Client.Do or Client.DoSimple
@@ -101,11 +106,12 @@ func New(t TestingT) *Client {
 	h.Set("User-Agent", UserAgent)
 
 	return &Client{
-		t:       t,
-		context: context.Background(),
-		method:  http.MethodGet,
-		url:     "/",
-		header:  h,
+		t:            t,
+		context:      context.Background(),
+		method:       http.MethodGet,
+		url:          "/",
+		header:       h,
+		MaxRedirects: 10,
 	}
 }
 
@@ -260,6 +266,7 @@ func (c *Client) buildRequest(baseURL string) *http.Request {
 	if len(c.form) > 0 && c.method == "" {
 		c.Method(http.MethodPost)
 	}
+	c.actualRedirect = nil
 	req, err := http.NewRequestWithContext(c.context, c.method, urlPath, c.body)
 	if c.hasError(err) {
 		return nil
@@ -288,10 +295,14 @@ func (c *Client) Do(server *httptest.Server) *http.Response {
 	wasRedirected := false
 	if client.CheckRedirect == nil {
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			fmt.Println("Redirected to:", req.URL)
-			if req.URL.Path != c.expectRedirectPath {
+			c.actualRedirect = append(c.actualRedirect, req.URL.Path)
+			if c.expectRedirectPath != "" && req.URL.Path != c.expectRedirectPath {
 				c.failNow("expected to redirect path '%s', actual path '%s'", c.expectRedirectPath, req.URL.Path)
 				return fmt.Errorf("expected to redirect path '%s', actual path '%s'", c.expectRedirectPath, req.URL.Path)
+			}
+			if len(c.actualRedirect) > c.MaxRedirects {
+				c.failNow("exceeded Client::MaxRedirects (%d) currently to '%s'", c.MaxRedirects, req.URL.Path)
+				return fmt.Errorf("exceeded max redirects of %d currently to '%s'", c.MaxRedirects, req.URL.Path)
 			}
 			wasRedirected = true
 			return nil
@@ -338,10 +349,11 @@ func (c *Client) DoSimple(server *httptest.Server) SimpleResponse {
 		return SimpleResponse{}
 	}
 	return SimpleResponse{
-		Header: resp.Header,
-		Status: resp.StatusCode,
-		Body:   string(buf),
-		t:      c.t,
+		Header:        resp.Header,
+		Status:        resp.StatusCode,
+		Body:          string(buf),
+		RedirectedVia: strings.Join(c.actualRedirect, ","),
+		t:             c.t,
 	}
 }
 
@@ -357,6 +369,10 @@ func joinPath(root, path string) string {
 func (c *Client) hasError(err error) bool {
 	if h, ok := c.t.(testingHooks); ok {
 		h.Helper()
+	}
+	// don't raise an error if there was already an error
+	if c.err != nil {
+		return true
 	}
 	if err != nil {
 		c.err = err
