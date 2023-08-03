@@ -112,7 +112,49 @@ func Test_overrides(t *testing.T) {
 		assert.Equal(t, "Go-http-client/1.1", actual.header.Get("User-Agent"))
 	})
 }
+func Test_cookies(t *testing.T) {
+	t.Run("cookies can be received", func(t *testing.T) {
+		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.SetCookie(w, &http.Cookie{
+				Name:  "the_cookie",
+				Value: "the_value",
+			})
+		}))
+		defer s.Close()
 
+		response := httptestclient.New(t).DoSimple(s)
+
+		c := response.Response.Cookies()
+		assert.NotEmpty(t, c)
+		assert.Equal(t, "the_cookie", c[0].Name)
+		assert.Equal(t, "the_value", c[0].Value)
+	})
+	t.Run("received cookies are sent on subsequent requests", func(t *testing.T) {
+		var actualCookies []*http.Cookie
+		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			switch r.URL.Path {
+			case "/set-cookie":
+				http.SetCookie(w, &http.Cookie{
+					Name:  "the_cookie",
+					Value: "the_value",
+				})
+			case "/send-cookie":
+				actualCookies = append(actualCookies, r.Cookies()...)
+			default:
+				require.FailNow(t, "bad path %s", &r.URL.Path)
+			}
+		}))
+		defer s.Close()
+
+		client := httptestclient.New(t)
+		_ = client.Get("set-cookie").DoSimple(s)
+		_ = client.Get("send-cookie").DoSimple(s)
+
+		assert.NotEmpty(t, actualCookies)
+		assert.Equal(t, "the_cookie", actualCookies[0].Name)
+		assert.Equal(t, "the_value", actualCookies[0].Value)
+	})
+}
 func Test_http_status_codes(t *testing.T) {
 	t.Run("if ExpectedStatusCode is not called then any 2xx passes", func(t *testing.T) {
 		for _, statusCode := range []int{http.StatusOK, http.StatusCreated, http.StatusAccepted, http.StatusNoContent} {

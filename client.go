@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -54,6 +55,7 @@ type SimpleResponse struct {
 	Body          string
 	Status        int
 	RedirectedVia string
+	Response      *http.Response
 
 	t TestingT
 }
@@ -292,6 +294,13 @@ func (c *Client) Do(server *httptest.Server) *http.Response {
 		return nil
 	}
 	client := server.Client()
+
+	if client.Jar == nil {
+		// cookiejar.New() NEVER returns an error
+		jar, _ := cookiejar.New(nil)
+		client.Jar = jar
+	}
+
 	wasRedirected := false
 	if client.CheckRedirect == nil {
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
@@ -353,6 +362,7 @@ func (c *Client) DoSimple(server *httptest.Server) SimpleResponse {
 		Status:        resp.StatusCode,
 		Body:          string(buf),
 		RedirectedVia: strings.Join(c.actualRedirect, ","),
+		Response:      resp,
 		t:             c.t,
 	}
 }
