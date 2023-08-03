@@ -314,6 +314,8 @@ func (c *Client) Do(server *httptest.Server) *http.Response {
 				return fmt.Errorf("exceeded max redirects of %d currently to '%s'", c.MaxRedirects, req.URL.Path)
 			}
 			wasRedirected = true
+			// clear the re-direct
+			c.expectRedirectPath = ""
 			return nil
 		}
 	}
