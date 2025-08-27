@@ -94,7 +94,7 @@ type Client struct {
 // example:
 //
 //	  resp2 := New(t).
-//			Post("/some-request/%s/resource", id).
+//			Post("/some-request/$0/resource", id).
 //			Header("special-header", "magic").
 //			BodyString(`{"token":"opaque-string"}`).
 //			Do(server)
@@ -146,44 +146,44 @@ func (c *Client) Method(method string) *Client {
 	return c
 }
 
-// URL adds a url using standard formatting as per fmt.Sprintf, default '/'
-func (c *Client) URL(url string, args ...interface{}) *Client {
-	c.url = fmt.Sprintf(url, args...)
+// URL adds a url using formatting $index or $map_key if args is a single map[string]any, default URL is '/'
+func (c *Client) URL(url string, args ...any) *Client {
+	c.url = expandStr(url, args...)
 	return c
 }
 
 // Post is shorthand for
 //
 //	testClient.Method("POST").URL(...)
-func (c *Client) Post(url string, args ...interface{}) *Client {
+func (c *Client) Post(url string, args ...any) *Client {
 	return c.Method(http.MethodPost).URL(url, args...)
 }
 
 // Put is shorthand for
 //
 //	testClient.Method("PUT").URL(...)
-func (c *Client) Put(url string, args ...interface{}) *Client {
+func (c *Client) Put(url string, args ...any) *Client {
 	return c.Method(http.MethodPut).URL(url, args...)
 }
 
 // Patch is shorthand for
 //
 //	testClient.Method("PATCH").URL(...)
-func (c *Client) Patch(url string, args ...interface{}) *Client {
+func (c *Client) Patch(url string, args ...any) *Client {
 	return c.Method(http.MethodPatch).URL(url, args...)
 }
 
 // Get is shorthand for
 //
 //	testClient.Method("GET").URL(...)
-func (c *Client) Get(url string, args ...interface{}) *Client {
+func (c *Client) Get(url string, args ...any) *Client {
 	return c.Method(http.MethodGet).URL(url, args...)
 }
 
 // Delete is shorthand for
 //
 //	testClient.Method("DELETE").URL(...)
-func (c *Client) Delete(url string, args ...interface{}) *Client {
+func (c *Client) Delete(url string, args ...any) *Client {
 	return c.Method(http.MethodDelete).URL(url, args...)
 }
 
@@ -226,7 +226,7 @@ func (c *Client) BodyBytes(body []byte) *Client {
 }
 
 // BodyJSON convert struct to son using json.Marshal
-func (c *Client) BodyJSON(payload interface{}) *Client {
+func (c *Client) BodyJSON(payload any) *Client {
 	if h, ok := c.t.(testingHooks); ok {
 		h.Helper()
 	}

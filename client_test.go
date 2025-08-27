@@ -75,23 +75,36 @@ func Test_overrides(t *testing.T) {
 	t.Run("URL can be overridden", func(t *testing.T) {
 		testData := []struct {
 			pattern  string
-			args     []interface{}
+			args     []any
 			expected string
 		}{
 			{"/", nil, "/"},
 			{"/a-path", nil, "/a-path"},
 			{"path-without-leading/", nil, "/path-without-leading/"},
-			{"/formatted/%s/path", []interface{}{"val"}, "/formatted/val/path"},
+			{"/formatted/$0/path", []any{"val"}, "/formatted/val/path"},
+			{"/using_map/$key1/path/$key2", []any{map[string]any{"key1": "some_value", "key2": 99}}, "/using_map/some_value/path/99"},
 		}
+		const method = "GET"
 		for _, td := range testData {
 			t.Run(fmt.Sprintf("set url to %q", td.pattern), func(t *testing.T) {
-				_ = httptestclient.New(t).
+				_ = httptestclient.
+					New(t).
+					Method(method).
 					URL(td.pattern, td.args...).
 					DoSimple(s)
 
 				assert.Equal(t, td.expected, actual.url)
 			})
 		}
+		t.Run("no url format args", func(t *testing.T) {
+			_ = httptestclient.
+				New(t).
+				Method(method).
+				URL("/any-no-format").
+				DoSimple(s)
+
+			assert.Equal(t, "/any-no-format", actual.url)
+		})
 	})
 	t.Run("headers can be set", func(t *testing.T) {
 		_ = httptestclient.New(t).

@@ -65,7 +65,7 @@ func Test_Example(t *testing.T) {
 	defer s.Close()
 
 	resp := httptestclient.New(t).
-		Post("/any/%s", "database-key").
+		Post("/any/$0", "database-key").
 		BodyJSON(&Customer{Name: "Bob"}).
 		Header("custom", "😊").
 		DoSimple(s)

@@ -11,7 +11,7 @@ func Test_Example(t *testing.T) {
     s := httptest.NewServer(ProductionHandler(myTestDatabase))
 
     resp := httptestclient.New(t).
-        Post("/any/%s", "database-key").
+        Post("/any/$0", "database-key").
         BodyJSON(&Customer{Name: "Bob"}).
         Header("custom", "😊").
         DoSimple(s)
